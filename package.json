@@ -1,0 +1,22 @@
+{
+  "name": "dev.flinku.sdk",
+  "version": "0.1.0",
+  "displayName": "Flinku SDK",
+  "description": "Deferred deep linking for Unity apps. Firebase Dynamic Links replacement.",
+  "unity": "2021.3",
+  "author": {
+    "name": "Flinku",
+    "email": "hello@flinku.dev",
+    "url": "https://flinku.dev"
+  },
+  "keywords": [
+    "deep-linking",
+    "flinku",
+    "firebase",
+    "dynamic-links"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  }
+}
