@@ -44,16 +44,80 @@ namespace Flinku
             var host = uri.Host; // myapp.flku.dev
             var dotIndex = host.IndexOf('.');
             _subdomain = dotIndex > 0 ? host.Substring(0, dotIndex) : host;
+            _config.Subdomain = _subdomain;
             _apiBaseUrl = $"{uri.Scheme}://{host.Substring(dotIndex + 1)}";
         }
 
         /// Match deferred deep link on app open
         public void Match(Action<FlinkuLink> onSuccess, Action<string> onError = null)
         {
-            StartCoroutine(MatchCoroutine(onSuccess, onError));
+            StartCoroutine(MatchEntryCoroutine(onSuccess, onError));
         }
 
-        private IEnumerator MatchCoroutine(Action<FlinkuLink> onSuccess, Action<string> onError)
+        private IEnumerator MatchEntryCoroutine(Action<FlinkuLink> onSuccess, Action<string> onError)
+        {
+            // Clipboard-based deferred deep linking
+            var clipText = GUIUtility.systemCopyBuffer;
+            if (!string.IsNullOrEmpty(clipText) &&
+                (clipText.Contains(".flku.dev") || clipText.Contains(_config.BaseUrl)))
+            {
+                GUIUtility.systemCopyBuffer = "";
+
+                FlinkuLink clipboardLink = null;
+                yield return MatchWithClipboard(clipText, link => clipboardLink = link);
+
+                if (clipboardLink != null)
+                {
+                    onSuccess?.Invoke(clipboardLink);
+                    yield break;
+                }
+
+                yield return MatchWithFingerprint(onSuccess, onError);
+                yield break;
+            }
+
+            yield return MatchWithFingerprint(onSuccess, onError);
+        }
+
+        private IEnumerator MatchWithClipboard(string clipUrl, Action<FlinkuLink> callback)
+        {
+            var body = JsonConvert.SerializeObject(new ClipboardMatchRequest
+            {
+                subdomain = _config.Subdomain,
+                clipboardUrl = clipUrl
+            }, JsonSettings);
+
+            using (var req = new UnityWebRequest($"{_apiBaseUrl}/api/match", "POST"))
+            {
+                req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                req.downloadHandler = new DownloadHandlerBuffer();
+                req.SetRequestHeader("Content-Type", "application/json");
+                req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
+
+                yield return req.SendWebRequest();
+
+                if (req.result != UnityWebRequest.Result.Success)
+                {
+                    callback?.Invoke(null);
+                    yield break;
+                }
+
+                var response = JsonConvert.DeserializeObject<MatchResponse>(req.downloadHandler.text, JsonSettings);
+                if (response != null && response.matched && response.link != null)
+                {
+                    ApplyMatchType(response, response.link);
+                    PlayerPrefs.SetString(MatchCacheKey, JsonConvert.SerializeObject(response.link, JsonSettings));
+                    PlayerPrefs.SetFloat(MatchCacheKey + "_time", Time.realtimeSinceStartup);
+                    callback?.Invoke(response.link);
+                }
+                else
+                {
+                    callback?.Invoke(null);
+                }
+            }
+        }
+
+        private IEnumerator MatchWithFingerprint(Action<FlinkuLink> onSuccess, Action<string> onError)
         {
             var cached = PlayerPrefs.GetString(MatchCacheKey, "");
             var cachedTime = PlayerPrefs.GetFloat(MatchCacheKey + "_time", 0);
@@ -87,11 +151,11 @@ namespace Flinku
                     yield break;
                 }
 
-                var json = req.downloadHandler.text;
-                var response = JsonConvert.DeserializeObject<MatchResponse>(json, JsonSettings);
+                var response = JsonConvert.DeserializeObject<MatchResponse>(req.downloadHandler.text, JsonSettings);
 
-                if (response != null && response.matched)
+                if (response != null && response.matched && response.link != null)
                 {
+                    ApplyMatchType(response, response.link);
                     PlayerPrefs.SetString(MatchCacheKey, JsonConvert.SerializeObject(response.link, JsonSettings));
                     PlayerPrefs.SetFloat(MatchCacheKey + "_time", Time.realtimeSinceStartup);
                     onSuccess?.Invoke(response.link);
@@ -101,6 +165,12 @@ namespace Flinku
                     onSuccess?.Invoke(null);
                 }
             }
+        }
+
+        private static void ApplyMatchType(MatchResponse response, FlinkuLink link)
+        {
+            if (string.IsNullOrEmpty(link.MatchType) && !string.IsNullOrEmpty(response.matchType))
+                link.MatchType = response.matchType;
         }
 
         /// Create a link programmatically (requires ApiKey)
@@ -154,9 +224,17 @@ namespace Flinku
         }
 
         [Serializable]
+        private class ClipboardMatchRequest
+        {
+            public string subdomain;
+            public string clipboardUrl;
+        }
+
+        [Serializable]
         private class MatchResponse
         {
             public bool matched;
+            public string matchType;
             public FlinkuLink link;
         }
     }

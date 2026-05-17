@@ -14,6 +14,7 @@ namespace Flinku
         public string ClickedAt;
         public string ProjectId;
         public string Subdomain;
+        public string MatchType;
     }
 
     [System.Serializable]
