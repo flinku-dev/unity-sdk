@@ -1,6 +1,6 @@
 {
   "name": "dev.flinku.sdk",
-  "version": "0.2.0",
+  "version": "0.1.1",
   "displayName": "Flinku SDK",
   "description": "Deferred deep linking for Unity apps. Firebase Dynamic Links replacement.",
   "unity": "2021.3",

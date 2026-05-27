@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using UnityEngine;
@@ -173,6 +175,31 @@ namespace Flinku
                 link.MatchType = response.matchType;
         }
 
+        /// Create a short link optimistically: returns immediately with a locally
+        /// generated slug and short URL, then registers the link on the server in
+        /// the background. Requires ApiKey.
+        public FlinkuCreatedLink CreateLinkInstant(FlinkuLinkOptions options)
+        {
+            var slug = GenerateInstantSlug(options.Title);
+            if (string.IsNullOrEmpty(_config.ApiKey))
+            {
+                Debug.LogError("Flinku: ApiKey is required to create links");
+            }
+            else
+            {
+                StartCoroutine(CreateLinkInstantBackgroundCoroutine(options, slug));
+            }
+
+            return new FlinkuCreatedLink
+            {
+                Id = "",
+                Slug = slug,
+                ShortUrl = $"https://{_subdomain}.flku.dev/{slug}",
+                DeepLink = options.DeepLink,
+                Params = options.Params
+            };
+        }
+
         /// Create a link programmatically (requires ApiKey)
         public void CreateLink(FlinkuLinkOptions options, Action<FlinkuCreatedLink> onSuccess, Action<string> onError = null)
         {
@@ -182,6 +209,38 @@ namespace Flinku
                 return;
             }
             StartCoroutine(CreateLinkCoroutine(options, onSuccess, onError));
+        }
+
+        private static string GenerateInstantSlug(string title)
+        {
+            var basePart = (title ?? "").ToLowerInvariant().Trim();
+            basePart = Regex.Replace(basePart, @"[^a-z0-9\s-]", "");
+            basePart = Regex.Replace(basePart, @"\s+", "-");
+            basePart = Regex.Replace(basePart, @"-+", "-").Trim('-');
+            if (string.IsNullOrEmpty(basePart))
+            {
+                basePart = "link";
+            }
+            const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            var rng = new System.Random();
+            var suffix = new string(Enumerable.Range(0, 4).Select(_ => chars[rng.Next(chars.Length)]).ToArray());
+            return $"{basePart}-{suffix}";
+        }
+
+        private IEnumerator CreateLinkInstantBackgroundCoroutine(FlinkuLinkOptions options, string slug)
+        {
+            options.Slug = slug;
+            var body = JsonConvert.SerializeObject(options, JsonSettings);
+            using (var req = new UnityWebRequest($"{_apiBaseUrl}/api/links", "POST"))
+            {
+                req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                req.downloadHandler = new DownloadHandlerBuffer();
+                req.SetRequestHeader("Content-Type", "application/json");
+                req.SetRequestHeader("Authorization", $"Bearer {_config.ApiKey}");
+                req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
+
+                yield return req.SendWebRequest();
+            }
         }
 
         private IEnumerator CreateLinkCoroutine(FlinkuLinkOptions options, Action<FlinkuCreatedLink> onSuccess, Action<string> onError)
