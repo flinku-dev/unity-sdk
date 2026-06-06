@@ -20,8 +20,11 @@ void Start()
     var flinku = FlinkuSDK.Initialize(new FlinkuConfig
     {
         UserId = "firebase-user-uid",
-        BaseUrl = "https://yourapp.flku.dev"
+        BaseUrl = "https://yourapp.flku.dev",
+        ApiKey = "flk_pk_..."
     });
+
+    // Use your publishable key (flk_pk_) in apps. Never embed your secret key (flk_live_).
 
     flinku.Match(link =>
     {

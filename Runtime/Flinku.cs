@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,6 +14,7 @@ namespace Flinku
     public class FlinkuSDK : MonoBehaviour
     {
         private static FlinkuSDK _instance;
+        private static bool _secretKeyWarningShown;
         private FlinkuConfig _config;
         private string _apiBaseUrl;
         private string _subdomain;
@@ -48,6 +50,43 @@ namespace Flinku
             _subdomain = dotIndex > 0 ? host.Substring(0, dotIndex) : host;
             _config.Subdomain = _subdomain;
             _apiBaseUrl = $"{uri.Scheme}://{host.Substring(dotIndex + 1)}";
+
+            if (!string.IsNullOrEmpty(config.ApiKey) &&
+                config.ApiKey.StartsWith("flk_live_") &&
+                !_secretKeyWarningShown)
+            {
+                _secretKeyWarningShown = true;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Debug.LogWarning(
+                    "FLINKU WARNING: You are embedding a secret key (flk_live_) in your app. " +
+                    "Anyone can extract it and gain full access to your links. " +
+                    "Use your publishable key (flk_pk_) instead — find it in your project settings at app.flinku.dev.");
+#endif
+            }
+        }
+
+        private static string LinkCreationErrorMessage(string body, long statusCode)
+        {
+            if (string.IsNullOrEmpty(body))
+            {
+                return $"Failed to create link: HTTP {statusCode}";
+            }
+            try
+            {
+                var json = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                if (json != null)
+                {
+                    if (json.TryGetValue("error", out var error) && error is string errorText && !string.IsNullOrEmpty(errorText))
+                        return errorText;
+                    if (json.TryGetValue("message", out var message) && message is string messageText && !string.IsNullOrEmpty(messageText))
+                        return messageText;
+                }
+            }
+            catch
+            {
+                // fall through to raw body
+            }
+            return body;
         }
 
         /// Match deferred deep link on app open
@@ -240,6 +279,14 @@ namespace Flinku
                 req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
 
                 yield return req.SendWebRequest();
+
+                if (req.result != UnityWebRequest.Result.Success)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    var message = LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode);
+                    Debug.LogWarning($"Flinku createLinkInstant background error: {message}");
+#endif
+                }
             }
         }
 
@@ -258,7 +305,8 @@ namespace Flinku
 
                 if (req.result != UnityWebRequest.Result.Success)
                 {
-                    onError?.Invoke(req.error);
+                    var message = LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode);
+                    onError?.Invoke(message);
                     yield break;
                 }
 
