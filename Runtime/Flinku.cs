@@ -42,14 +42,15 @@ namespace Flinku
         private void Setup(FlinkuConfig config)
         {
             _config = config;
-            // Extract subdomain and apiBaseUrl from baseUrl
-            // https://myapp.flku.dev → subdomain=myapp, apiBaseUrl=https://flku.dev
             var uri = new Uri(config.BaseUrl);
-            var host = uri.Host; // myapp.flku.dev
+            var host = uri.Host;
             var dotIndex = host.IndexOf('.');
             _subdomain = dotIndex > 0 ? host.Substring(0, dotIndex) : host;
             _config.Subdomain = _subdomain;
             _apiBaseUrl = $"{uri.Scheme}://{host.Substring(dotIndex + 1)}";
+
+            FlinkuReferralCore.Store = new PlayerPrefsKeyValueStore();
+            FlinkuReferralCore.Network = new UnityReferralNetwork(this);
 
             if (!string.IsNullOrEmpty(config.ApiKey) &&
                 config.ApiKey.StartsWith("flk_live_") &&
@@ -63,14 +64,19 @@ namespace Flinku
                     "Use your publishable key (flk_pk_) instead — find it in your project settings at app.flinku.dev.");
 #endif
             }
+
+            var storedUserId = FlinkuReferralCore.Store.GetString(FlinkuReferralCore.UserIdKey)?.Trim();
+            if (!string.IsNullOrEmpty(storedUserId))
+            {
+                FlinkuReferralCore.TrackReferralInBackground(
+                    storedUserId, _config.ApiKey, _apiBaseUrl, _config.TimeoutMs);
+            }
         }
 
         private static string LinkCreationErrorMessage(string body, long statusCode)
         {
             if (string.IsNullOrEmpty(body))
-            {
                 return $"Failed to create link: HTTP {statusCode}";
-            }
             try
             {
                 var json = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
@@ -82,14 +88,10 @@ namespace Flinku
                         return messageText;
                 }
             }
-            catch
-            {
-                // fall through to raw body
-            }
+            catch { }
             return body;
         }
 
-        /// Match deferred deep link on app open
         public void Match(Action<FlinkuLink> onSuccess, Action<string> onError = null)
         {
             StartCoroutine(MatchEntryCoroutine(onSuccess, onError));
@@ -97,26 +99,21 @@ namespace Flinku
 
         private IEnumerator MatchEntryCoroutine(Action<FlinkuLink> onSuccess, Action<string> onError)
         {
-            // Clipboard-based deferred deep linking
             var clipText = GUIUtility.systemCopyBuffer;
             if (!string.IsNullOrEmpty(clipText) &&
                 (clipText.Contains(".flku.dev") || clipText.Contains(_config.BaseUrl)))
             {
                 GUIUtility.systemCopyBuffer = "";
-
                 FlinkuLink clipboardLink = null;
                 yield return MatchWithClipboard(clipText, link => clipboardLink = link);
-
                 if (clipboardLink != null)
                 {
                     onSuccess?.Invoke(clipboardLink);
                     yield break;
                 }
-
                 yield return MatchWithFingerprint(onSuccess, onError);
                 yield break;
             }
-
             yield return MatchWithFingerprint(onSuccess, onError);
         }
 
@@ -134,7 +131,6 @@ namespace Flinku
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
-
                 yield return req.SendWebRequest();
 
                 if (req.result != UnityWebRequest.Result.Success)
@@ -147,14 +143,10 @@ namespace Flinku
                 if (response != null && response.matched && response.link != null)
                 {
                     ApplyMatchType(response, response.link);
-                    PlayerPrefs.SetString(MatchCacheKey, JsonConvert.SerializeObject(response.link, JsonSettings));
-                    PlayerPrefs.SetFloat(MatchCacheKey + "_time", Time.realtimeSinceStartup);
+                    PersistMatch(response.link);
                     callback?.Invoke(response.link);
                 }
-                else
-                {
-                    callback?.Invoke(null);
-                }
+                else callback?.Invoke(null);
             }
         }
 
@@ -182,7 +174,6 @@ namespace Flinku
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
-
                 yield return req.SendWebRequest();
 
                 if (req.result != UnityWebRequest.Result.Success)
@@ -193,18 +184,13 @@ namespace Flinku
                 }
 
                 var response = JsonConvert.DeserializeObject<MatchResponse>(req.downloadHandler.text, JsonSettings);
-
                 if (response != null && response.matched && response.link != null)
                 {
                     ApplyMatchType(response, response.link);
-                    PlayerPrefs.SetString(MatchCacheKey, JsonConvert.SerializeObject(response.link, JsonSettings));
-                    PlayerPrefs.SetFloat(MatchCacheKey + "_time", Time.realtimeSinceStartup);
+                    PersistMatch(response.link);
                     onSuccess?.Invoke(response.link);
                 }
-                else
-                {
-                    onSuccess?.Invoke(null);
-                }
+                else onSuccess?.Invoke(null);
             }
         }
 
@@ -214,20 +200,24 @@ namespace Flinku
                 link.MatchType = response.matchType;
         }
 
-        /// Create a short link optimistically: returns immediately with a locally
-        /// generated slug and short URL, then registers the link on the server in
-        /// the background. Requires ApiKey.
+        private static void PersistMatch(FlinkuLink link)
+        {
+            PlayerPrefs.SetString(MatchCacheKey, JsonConvert.SerializeObject(link, JsonSettings));
+            PlayerPrefs.SetFloat(MatchCacheKey + "_time", Time.realtimeSinceStartup);
+            PlayerPrefs.Save();
+            FlinkuReferralCore.Store.SetString(
+                FlinkuReferralCore.MatchResultKey,
+                JsonConvert.SerializeObject(link, JsonSettings));
+            FlinkuReferralCore.PersistPendingReferralIfNeeded(link);
+        }
+
         public FlinkuCreatedLink CreateLinkInstant(FlinkuLinkOptions options)
         {
             var slug = GenerateInstantSlug(options.Title);
             if (string.IsNullOrEmpty(_config.ApiKey))
-            {
                 Debug.LogError("Flinku: ApiKey is required to create links");
-            }
             else
-            {
                 StartCoroutine(CreateLinkInstantBackgroundCoroutine(options, slug));
-            }
 
             return new FlinkuCreatedLink
             {
@@ -239,7 +229,23 @@ namespace Flinku
             };
         }
 
-        /// Create a link programmatically (requires ApiKey)
+        public void SetUserId(string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId)) return;
+            var id = userId.Trim();
+            FlinkuReferralCore.WarnMissingReferralApiKeyOnce(_config?.ApiKey);
+            FlinkuReferralCore.Store.SetString(FlinkuReferralCore.UserIdKey, id);
+            FlinkuReferralCore.TrackReferralInBackground(
+                id, _config?.ApiKey, _apiBaseUrl, _config?.TimeoutMs ?? 10000);
+        }
+
+        public void QualifyReferral(string eventName = null)
+        {
+            FlinkuReferralCore.WarnMissingReferralApiKeyOnce(_config?.ApiKey);
+            FlinkuReferralCore.QualifyReferralInBackground(
+                eventName, _config?.ApiKey, _apiBaseUrl, _config?.TimeoutMs ?? 10000);
+        }
+
         public void CreateLink(FlinkuLinkOptions options, Action<FlinkuCreatedLink> onSuccess, Action<string> onError = null)
         {
             if (string.IsNullOrEmpty(_config.ApiKey))
@@ -256,10 +262,7 @@ namespace Flinku
             basePart = Regex.Replace(basePart, @"[^a-z0-9\s-]", "");
             basePart = Regex.Replace(basePart, @"\s+", "-");
             basePart = Regex.Replace(basePart, @"-+", "-").Trim('-');
-            if (string.IsNullOrEmpty(basePart))
-            {
-                basePart = "link";
-            }
+            if (string.IsNullOrEmpty(basePart)) basePart = "link";
             const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
             var rng = new System.Random();
             var suffix = new string(Enumerable.Range(0, 4).Select(_ => chars[rng.Next(chars.Length)]).ToArray());
@@ -277,16 +280,7 @@ namespace Flinku
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.SetRequestHeader("Authorization", $"Bearer {_config.ApiKey}");
                 req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
-
                 yield return req.SendWebRequest();
-
-                if (req.result != UnityWebRequest.Result.Success)
-                {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    var message = LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode);
-                    Debug.LogWarning($"Flinku createLinkInstant background error: {message}");
-#endif
-                }
             }
         }
 
@@ -300,26 +294,59 @@ namespace Flinku
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.SetRequestHeader("Authorization", $"Bearer {_config.ApiKey}");
                 req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
-
                 yield return req.SendWebRequest();
-
                 if (req.result != UnityWebRequest.Result.Success)
                 {
-                    var message = LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode);
-                    onError?.Invoke(message);
+                    onError?.Invoke(LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode));
                     yield break;
                 }
-
                 var link = JsonConvert.DeserializeObject<FlinkuCreatedLink>(req.downloadHandler.text, JsonSettings);
                 onSuccess?.Invoke(link);
             }
         }
 
-        /// Reset match cache
         public void Reset()
         {
             PlayerPrefs.DeleteKey(MatchCacheKey);
             PlayerPrefs.DeleteKey(MatchCacheKey + "_time");
+            PlayerPrefs.Save();
+        }
+
+        private sealed class UnityReferralNetwork : IFlinkuReferralNetwork
+        {
+            private readonly FlinkuSDK _sdk;
+            public UnityReferralNetwork(FlinkuSDK sdk) => _sdk = sdk;
+
+            public void PostReferral(
+                string apiBaseUrl,
+                string path,
+                Dictionary<string, object> body,
+                string apiKey,
+                Action<bool> onComplete)
+            {
+                _sdk.StartCoroutine(PostCoroutine(apiBaseUrl, path, body, apiKey, onComplete));
+            }
+
+            private static IEnumerator PostCoroutine(
+                string apiBaseUrl,
+                string path,
+                Dictionary<string, object> body,
+                string apiKey,
+                Action<bool> onComplete)
+            {
+                var json = JsonConvert.SerializeObject(body, JsonSettings);
+                using (var req = new UnityWebRequest($"{apiBaseUrl}{path}", "POST"))
+                {
+                    req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+                    req.downloadHandler = new DownloadHandlerBuffer();
+                    req.SetRequestHeader("Content-Type", "application/json");
+                    req.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                    yield return req.SendWebRequest();
+                    var ok = req.result == UnityWebRequest.Result.Success &&
+                             req.responseCode >= 200 && req.responseCode <= 299;
+                    onComplete?.Invoke(ok);
+                }
+            }
         }
 
         [Serializable]

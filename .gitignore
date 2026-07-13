@@ -8,3 +8,16 @@ Temp/
 Logs/
 obj/
 .vs/
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+
+# test build artifacts
+tests~/**/bin/
+tests~/**/obj/
+**/bin/
+**/obj/
+*.dll
+*.pdb

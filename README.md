@@ -37,6 +37,13 @@ void Start()
 }
 ```
 
+## Referrals
+
+```csharp
+sdk.SetUserId(user.Id);
+sdk.QualifyReferral("purchase");
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

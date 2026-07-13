@@ -6,6 +6,8 @@ namespace Flinku
     public class FlinkuLink
     {
         public string Id;
+        /// <summary>Match responses may send linkId instead of id.</summary>
+        public string LinkId;
         public string Slug;
         public string ShortUrl;
         public string DeepLink;
