@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace Flinku
@@ -245,6 +246,38 @@ namespace Flinku
                 Store.SetBool(trackedKey, true);
                 ClearPendingReferral(projectId);
             });
+        }
+
+        public static void ClearAllReferralState()
+        {
+            var store = Store;
+            var userId = store.GetString(UserIdKey)?.Trim();
+            var projectIds = GetPendingIndex().ToList();
+            var referralProjectId = store.GetString(ReferralProjectIdKey)?.Trim();
+            if (!string.IsNullOrEmpty(referralProjectId) && !projectIds.Contains(referralProjectId))
+                projectIds.Add(referralProjectId);
+
+            store.RemoveKey(UserIdKey);
+            store.RemoveKey(ReferralProjectIdKey);
+            store.RemoveKey(MatchResultKey);
+
+            foreach (var projectId in projectIds)
+            {
+                store.RemoveKey(PendingReferralKey(projectId));
+                if (!string.IsNullOrEmpty(userId))
+                    store.RemoveKey(ReferralTrackedKey(projectId, userId));
+            }
+
+            store.RemoveKey(PendingReferralIndexKey);
+
+            foreach (var key in store.AllKeys())
+            {
+                if (key.StartsWith(PendingReferralKeyPrefix, StringComparison.Ordinal) ||
+                    key.StartsWith("referral_tracked_", StringComparison.Ordinal))
+                {
+                    store.RemoveKey(key);
+                }
+            }
         }
 
         public static void QualifyReferralInBackground(

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.0 — 2026-07-21
+
+* `FlinkuSDK.Instance.ResetAll()` — testing-only full local wipe (match cache, user id, pending referral, tracked-once flags). Does not change `Reset()` behaviour.
+* Pending referral index entry is removed when a pending referral record expires by TTL.
+
 ## 0.6.0
 
 * Pending referral record (`flinku_pending_referral_{projectId}`) survives `Reset()`

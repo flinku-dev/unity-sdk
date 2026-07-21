@@ -312,6 +312,19 @@ namespace Flinku
             PlayerPrefs.Save();
         }
 
+        /// <summary>
+        /// Clears all Flinku local state, including referral attribution and stored user id.
+        /// <b>Testing only — do not call in production.</b> Clearing attribution destroys
+        /// real referral data. <see cref="Reset"/> was narrowed in 0.6.0 so production
+        /// deep-link handling does not wipe referrals; use ResetAll only for a full wipe
+        /// in development or QA.
+        /// </summary>
+        public void ResetAll()
+        {
+            Reset();
+            FlinkuReferralCore.ClearAllReferralState();
+        }
+
         private sealed class UnityReferralNetwork : IFlinkuReferralNetwork
         {
             private readonly FlinkuSDK _sdk;
