@@ -273,14 +273,41 @@ namespace Flinku
         {
             options.Slug = slug;
             var body = JsonConvert.SerializeObject(options, JsonSettings);
-            using (var req = new UnityWebRequest($"{_apiBaseUrl}/api/links", "POST"))
+            var backoffs = new[] { 1f, 2f, 4f };
+            var lastMessage = "Failed to create link";
+            // Retries run in the background; if the process dies mid-retry, attempts stop.
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
-                req.downloadHandler = new DownloadHandlerBuffer();
-                req.SetRequestHeader("Content-Type", "application/json");
-                req.SetRequestHeader("Authorization", $"Bearer {_config.ApiKey}");
-                req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
-                yield return req.SendWebRequest();
+                using (var req = new UnityWebRequest($"{_apiBaseUrl}/api/links", "POST"))
+                {
+                    req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                    req.downloadHandler = new DownloadHandlerBuffer();
+                    req.SetRequestHeader("Content-Type", "application/json");
+                    req.SetRequestHeader("Authorization", $"Bearer {_config.ApiKey}");
+                    req.timeout = Mathf.Max(1, _config.TimeoutMs / 1000);
+                    yield return req.SendWebRequest();
+
+                    if (req.result == UnityWebRequest.Result.Success &&
+                        req.responseCode >= 200 && req.responseCode <= 299)
+                    {
+                        yield break;
+                    }
+
+                    lastMessage = LinkCreationErrorMessage(req.downloadHandler?.text, req.responseCode);
+                    var retryable = req.result != UnityWebRequest.Result.Success ||
+                                    req.responseCode == 429 ||
+                                    req.responseCode >= 500;
+                    if (!retryable || attempt >= 2)
+                    {
+                        Debug.LogWarning($"[Flinku] createLinkInstant background error: {lastMessage}");
+                        yield break;
+                    }
+                }
+
+                if (attempt < 2)
+                {
+                    yield return new WaitForSeconds(backoffs[attempt]);
+                }
             }
         }
 
