@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.7.1 — 2026-09-03
+## 0.7.2 - 2026-09-22
+
+* Optional `CustomDomain` on `FlinkuConfig` (host only) for public short links and clipboard matching.
+* `BaseUrl` must be `https://{subdomain}.flku.dev`. Invalid config logs an error and leaves the SDK unconfigured (does not throw).
+* Clipboard filter accepts `*.flku.dev`, the baseUrl host, or exact `CustomDomain`.
+* `CreateLinkInstant` uses `CustomDomain` when set, else `{subdomain}.flku.dev`.
+
+## 0.7.1 - 2026-09-03
 
 * `CreateLinkInstant` retries the background POST up to three times (1s, 2s, 4s backoff) on transient failures. Adds response status checking and `Debug.LogWarning` on terminal failure. Terminal HTTP errors (400, 403, 409) are not retried.
 
-## 0.7.0 — 2026-07-21
+## 0.7.0 - 2026-07-21
 
 * `FlinkuSDK.Instance.ResetAll()` — testing-only full local wipe (match cache, user id, pending referral, tracked-once flags). Does not change `Reset()` behaviour.
 * Pending referral index entry is removed when a pending referral record expires by TTL.

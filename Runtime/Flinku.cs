@@ -18,6 +18,9 @@ namespace Flinku
         private FlinkuConfig _config;
         private string _apiBaseUrl;
         private string _subdomain;
+        private string _baseUrlHost;
+        private string _customDomain;
+        private bool _configured;
         private const string MatchCacheKey = "flinku_match_state";
         private const float MatchCacheTtlSeconds = 300f;
 
@@ -41,13 +44,39 @@ namespace Flinku
 
         private void Setup(FlinkuConfig config)
         {
+            // Validate without throwing: log and leave unconfigured (C# / Unity norms).
+            if (!FlinkuUrlHelpers.TryParseBaseUrl(
+                    config?.BaseUrl,
+                    out var subdomain,
+                    out var apiBaseUrl,
+                    out var baseUrlHost,
+                    out var baseUrlError))
+            {
+                Debug.LogError("[Flinku] " + (baseUrlError ?? FlinkuUrlHelpers.InvalidBaseUrlMessage));
+                _configured = false;
+                _config = null;
+                return;
+            }
+
+            if (!FlinkuUrlHelpers.TryParseCustomDomain(
+                    config.CustomDomain,
+                    out var customDomain,
+                    out var customDomainError))
+            {
+                Debug.LogError("[Flinku] " + customDomainError);
+                _configured = false;
+                _config = null;
+                return;
+            }
+
             _config = config;
-            var uri = new Uri(config.BaseUrl);
-            var host = uri.Host;
-            var dotIndex = host.IndexOf('.');
-            _subdomain = dotIndex > 0 ? host.Substring(0, dotIndex) : host;
+            _subdomain = subdomain;
             _config.Subdomain = _subdomain;
-            _apiBaseUrl = $"{uri.Scheme}://{host.Substring(dotIndex + 1)}";
+            _config.CustomDomain = customDomain;
+            _apiBaseUrl = apiBaseUrl;
+            _baseUrlHost = baseUrlHost;
+            _customDomain = customDomain;
+            _configured = true;
 
             FlinkuReferralCore.Store = new PlayerPrefsKeyValueStore();
             FlinkuReferralCore.Network = new UnityReferralNetwork(this);
@@ -61,7 +90,7 @@ namespace Flinku
                 Debug.LogWarning(
                     "FLINKU WARNING: You are embedding a secret key (flk_live_) in your app. " +
                     "Anyone can extract it and gain full access to your links. " +
-                    "Use your publishable key (flk_pk_) instead — find it in your project settings at app.flinku.dev.");
+                    "Use your publishable key (flk_pk_) instead - find it in your project settings at app.flinku.dev.");
 #endif
             }
 
@@ -71,6 +100,13 @@ namespace Flinku
                 FlinkuReferralCore.TrackReferralInBackground(
                     storedUserId, _config.ApiKey, _apiBaseUrl, _config.TimeoutMs);
             }
+        }
+
+        private bool EnsureConfigured()
+        {
+            if (_configured && _config != null) return true;
+            Debug.LogError("[Flinku] Not configured. Call FlinkuSDK.Initialize() with a valid BaseUrl first.");
+            return false;
         }
 
         private static string LinkCreationErrorMessage(string body, long statusCode)
@@ -94,6 +130,11 @@ namespace Flinku
 
         public void Match(Action<FlinkuLink> onSuccess, Action<string> onError = null)
         {
+            if (!EnsureConfigured())
+            {
+                onSuccess?.Invoke(null);
+                return;
+            }
             StartCoroutine(MatchEntryCoroutine(onSuccess, onError));
         }
 
@@ -101,7 +142,7 @@ namespace Flinku
         {
             var clipText = GUIUtility.systemCopyBuffer;
             if (!string.IsNullOrEmpty(clipText) &&
-                (clipText.Contains(".flku.dev") || clipText.Contains(_config.BaseUrl)))
+                FlinkuUrlHelpers.IsClipboardUrlAccepted(clipText, _baseUrlHost, _customDomain))
             {
                 GUIUtility.systemCopyBuffer = "";
                 FlinkuLink clipboardLink = null;
@@ -213,6 +254,9 @@ namespace Flinku
 
         public FlinkuCreatedLink CreateLinkInstant(FlinkuLinkOptions options)
         {
+            if (!EnsureConfigured())
+                return null;
+
             var slug = GenerateInstantSlug(options.Title);
             if (string.IsNullOrEmpty(_config.ApiKey))
                 Debug.LogError("Flinku: ApiKey is required to create links");
@@ -223,7 +267,7 @@ namespace Flinku
             {
                 Id = "",
                 Slug = slug,
-                ShortUrl = $"https://{_subdomain}.flku.dev/{slug}",
+                ShortUrl = FlinkuUrlHelpers.BuildPublicShortUrl(_subdomain, slug, _customDomain),
                 DeepLink = options.DeepLink,
                 Params = options.Params
             };
@@ -231,6 +275,7 @@ namespace Flinku
 
         public void SetUserId(string userId)
         {
+            if (!EnsureConfigured()) return;
             if (string.IsNullOrWhiteSpace(userId)) return;
             var id = userId.Trim();
             FlinkuReferralCore.WarnMissingReferralApiKeyOnce(_config?.ApiKey);
@@ -241,6 +286,7 @@ namespace Flinku
 
         public void QualifyReferral(string eventName = null)
         {
+            if (!EnsureConfigured()) return;
             FlinkuReferralCore.WarnMissingReferralApiKeyOnce(_config?.ApiKey);
             FlinkuReferralCore.QualifyReferralInBackground(
                 eventName, _config?.ApiKey, _apiBaseUrl, _config?.TimeoutMs ?? 10000);
@@ -248,6 +294,11 @@ namespace Flinku
 
         public void CreateLink(FlinkuLinkOptions options, Action<FlinkuCreatedLink> onSuccess, Action<string> onError = null)
         {
+            if (!EnsureConfigured())
+            {
+                onError?.Invoke("Flinku is not configured");
+                return;
+            }
             if (string.IsNullOrEmpty(_config.ApiKey))
             {
                 onError?.Invoke("ApiKey is required to create links");

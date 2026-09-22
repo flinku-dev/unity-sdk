@@ -8,6 +8,11 @@ namespace Flinku
         public string BaseUrl; // e.g. https://myapp.flku.dev
         public string Subdomain; // set automatically from BaseUrl on Initialize
         /// <summary>
+        /// Optional custom link domain host only (e.g. links.example.com).
+        /// No scheme, path, port, or whitespace. Lowercased; trailing dot stripped.
+        /// </summary>
+        public string CustomDomain;
+        /// <summary>
         /// Optional API key for creating links. Accepts publishable keys (flk_pk_) or secret keys (flk_live_).
         /// Use your publishable key (flk_pk_) in apps. Never embed your secret key (flk_live_).
         /// </summary>

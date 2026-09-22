@@ -14,5 +14,6 @@
     <Compile Include="..\..\Runtime\FlinkuLink.cs" Link="FlinkuLink.cs" />
     <Compile Include="..\..\Runtime\IFlinkuKeyValueStore.cs" Link="IFlinkuKeyValueStore.cs" />
     <Compile Include="..\..\Runtime\FlinkuReferralCore.cs" Link="FlinkuReferralCore.cs" />
+    <Compile Include="..\..\Runtime\FlinkuUrlHelpers.cs" Link="FlinkuUrlHelpers.cs" />
   </ItemGroup>
 </Project>

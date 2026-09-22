@@ -1,6 +1,6 @@
 # Flinku Unity SDK
 
-Deferred deep linking for Unity apps. Firebase Dynamic Links replacement.
+**Version 0.7.2** - deferred deep linking for Unity apps. Firebase Dynamic Links replacement.
 
 ## Installation via Unity Package Manager
 
@@ -21,6 +21,7 @@ void Start()
     {
         UserId = "firebase-user-uid",
         BaseUrl = "https://yourapp.flku.dev",
+        // CustomDomain = "links.example.com", // optional: verified custom link domain (host only)
         ApiKey = "flk_pk_..."
     });
 
@@ -46,4 +47,4 @@ sdk.QualifyReferral("purchase");
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
