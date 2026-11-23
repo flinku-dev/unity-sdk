@@ -140,20 +140,23 @@ namespace Flinku
 
         private IEnumerator MatchEntryCoroutine(Action<FlinkuLink> onSuccess, Action<string> onError)
         {
-            var clipText = GUIUtility.systemCopyBuffer;
-            if (!string.IsNullOrEmpty(clipText) &&
-                FlinkuUrlHelpers.IsClipboardUrlAccepted(clipText, _baseUrlHost, _customDomain))
+            if (_config.ReadClipboard)
             {
-                GUIUtility.systemCopyBuffer = "";
-                FlinkuLink clipboardLink = null;
-                yield return MatchWithClipboard(clipText, link => clipboardLink = link);
-                if (clipboardLink != null)
+                var clipText = GUIUtility.systemCopyBuffer;
+                if (!string.IsNullOrEmpty(clipText) &&
+                    FlinkuUrlHelpers.IsClipboardUrlAccepted(clipText, _baseUrlHost, _customDomain))
                 {
-                    onSuccess?.Invoke(clipboardLink);
+                    GUIUtility.systemCopyBuffer = "";
+                    FlinkuLink clipboardLink = null;
+                    yield return MatchWithClipboard(clipText, link => clipboardLink = link);
+                    if (clipboardLink != null)
+                    {
+                        onSuccess?.Invoke(clipboardLink);
+                        yield break;
+                    }
+                    yield return MatchWithFingerprint(onSuccess, onError);
                     yield break;
                 }
-                yield return MatchWithFingerprint(onSuccess, onError);
-                yield break;
             }
             yield return MatchWithFingerprint(onSuccess, onError);
         }

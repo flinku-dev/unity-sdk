@@ -17,6 +17,11 @@ namespace Flinku
         /// Use your publishable key (flk_pk_) in apps. Never embed your secret key (flk_live_).
         /// </summary>
         public string ApiKey;
+        /// <summary>
+        /// When true (default), Match may read and clear the system clipboard for a Flinku short link
+        /// before fingerprint matching. Set false to never touch the clipboard.
+        /// </summary>
+        public bool ReadClipboard = true;
         public int TimeoutMs = 10000;
     }
 }
